@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebase';
 import { LoginPage } from './components/auth/LoginPage';
 import { Dashboard } from './components/dashboard/Dashboard';
 import { CourseManagement } from './components/courses/CourseManagement';
@@ -13,24 +15,34 @@ import { User, Course, Assessment, SimulationResult } from './types';
 
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [currentPage, setCurrentPage] = useState<string>('dashboard');
+  const [currentPage, setCurrentPage] = useState<string>('login');
   const [courses, setCourses] = useState<Course[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [simulationResults, setSimulationResults] = useState<SimulationResult[]>([]);
-  const [notifications, setNotifications] = useState<Array<{id: string, message: string, type: 'info' | 'success' | 'warning' | 'error'}>>([]);
+  const [notifications, setNotifications] = useState<
+    Array<{ id: string; message: string; type: 'info' | 'success' | 'warning' | 'error' }>
+  >([]);
 
   useEffect(() => {
-    // Initialize demo data
-    const demoUser = {
-      id: '1',
-      email: 'student@nursing.edu',
-      name: 'Nadun Madhushan',
-      role: 'student' as const,
-      createdAt: new Date(),
-      enrolledCourses: ['1', '2']
-    };
-    setCurrentUser(demoUser);
+    // Listen for auth state changes
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        const appUser: User = {
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: firebaseUser.displayName || 'Administrator',
+          role: 'admin', // Hardcode for now; later, fetch from Firestore
+          createdAt: new Date(),
+        };
+        setCurrentUser(appUser);
+        setCurrentPage('dashboard');
+      } else {
+        setCurrentUser(null);
+        setCurrentPage('login');
+      }
+    });
 
+    // Demo data for courses, assessments, etc. (replace with Firestore later)
     const demoCourses: Course[] = [
       {
         id: '1',
@@ -45,150 +57,67 @@ function App() {
             content: 'Essential skills for patient care including vital signs, hygiene, and safety protocols.',
             materials: [
               { id: '1', title: 'Vital Signs Guide', type: 'document', url: '#' },
-              { id: '2', title: 'Patient Safety Video', type: 'video', url: '#' }
-            ]
+              { id: '2', title: 'Hygiene Protocols', type: 'video', url: '#' },
+            ],
           },
-          {
-            id: '2',
-            title: 'Medication Administration',
-            content: 'Safe medication practices and the five rights of medication administration.',
-            materials: [
-              { id: '3', title: 'Medication Safety Protocols', type: 'document', url: '#' }
-            ]
-          }
         ],
         createdAt: new Date(),
-        enrolledStudents: ['1']
+        enrolledStudents: ['1'],
       },
-      {
-        id: '2',
-        title: 'Clinical Skills Practice',
-        description: 'Hands-on practice with essential clinical skills',
-        instructorId: 'instructor1',
-        instructorName: 'Dr. Emily Rodriguez',
-        modules: [
-          {
-            id: '3',
-            title: 'Vital Signs Assessment',
-            content: 'Comprehensive training on measuring and interpreting vital signs.',
-            materials: [
-              { id: '4', title: 'Pulse Assessment Techniques', type: 'document', url: '#' }
-            ]
-          }
-        ],
-        createdAt: new Date(),
-        enrolledStudents: ['1']
-      }
     ];
     setCourses(demoCourses);
 
-    const demoAssessments: Assessment[] = [
-      {
-        id: '1',
-        courseId: '1',
-        title: 'Fundamentals Quiz 1',
-        description: 'Test your knowledge of basic nursing principles',
-        questions: [
-          {
-            id: '1',
-            type: 'multiple-choice',
-            question: 'What are the normal vital signs for an adult?',
-            options: [
-              'HR: 60-100, BP: 120/80, Temp: 98.6°F, RR: 12-20',
-              'HR: 80-120, BP: 140/90, Temp: 99°F, RR: 16-24',
-              'HR: 50-80, BP: 110/70, Temp: 97°F, RR: 10-16'
-            ],
-            correctAnswer: 0
-          },
-          {
-            id: '2',
-            type: 'true-false',
-            question: 'Hand hygiene is the most important measure to prevent infection.',
-            correctAnswer: true
-          },
-          {
-            id: '3',
-            type: 'short-answer',
-            question: 'List the five rights of medication administration.',
-            correctAnswer: 'Right patient, right medication, right dose, right route, right time'
-          }
-        ],
-        timeLimit: 30,
-        passingScore: 70,
-        createdAt: new Date()
-      }
-    ];
-    setAssessments(demoAssessments);
+    return () => unsubscribe(); // Cleanup subscription
   }, []);
 
-  const handleLogin = (user: User) => {
-    setCurrentUser(user);
-    setCurrentPage('dashboard');
-  };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setCurrentPage('dashboard');
-  };
-
   const addNotification = (message: string, type: 'info' | 'success' | 'warning' | 'error') => {
-    const id = Date.now().toString();
-    setNotifications(prev => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 5000);
+    setNotifications((prev) => [
+      ...prev,
+      { id: Math.random().toString(), message, type },
+    ]);
   };
 
   const handleSimulationComplete = (result: SimulationResult) => {
-    setSimulationResults(prev => [...prev, result]);
-    addNotification('Simulation completed successfully!', 'success');
+    setSimulationResults((prev) => [...prev, result]);
+    addNotification(`Simulation completed with score: ${result.score}%`, result.score >= 70 ? 'success' : 'warning');
   };
 
-  if (!currentUser) {
-    return <LoginPage onLogin={handleLogin} />;
-  }
+  const handleLogout = () => {
+    auth.signOut();
+    setCurrentUser(null);
+    setCurrentPage('login');
+  };
 
   const renderCurrentPage = () => {
+    if (!currentUser) {
+      return <LoginPage onLogin={setCurrentUser} />;
+    }
+
     switch (currentPage) {
-      case 'dashboard':
-        return (
-          <Dashboard 
-            user={currentUser} 
-            courses={courses} 
-            assessments={assessments}
-            simulationResults={simulationResults}
-            onNavigate={setCurrentPage}
-          />
-        );
       case 'courses':
         return (
-          <CourseManagement 
-            user={currentUser} 
-            courses={courses} 
+          <CourseManagement
+            user={currentUser}
+            courses={courses}
             setCourses={setCourses}
             onNavigate={setCurrentPage}
           />
         );
       case 'assessments':
         return (
-          <AssessmentSystem 
-            user={currentUser} 
-            assessments={assessments} 
+          <AssessmentSystem
+            user={currentUser}
+            assessments={assessments}
             courses={courses}
             setAssessments={setAssessments}
             onComplete={(score) => addNotification(`Assessment completed with score: ${score}%`, score >= 70 ? 'success' : 'warning')}
           />
         );
       case 'simulations':
-        return (
-          <SimulationHub 
-            user={currentUser} 
-            onNavigate={setCurrentPage}
-          />
-        );
+        return <SimulationHub user={currentUser} onNavigate={setCurrentPage} />;
       case 'pulse-simulation':
         return (
-          <PulseCheckSimulation 
+          <PulseCheckSimulation
             user={currentUser}
             onComplete={handleSimulationComplete}
             onBack={() => setCurrentPage('simulations')}
@@ -196,8 +125,8 @@ function App() {
         );
       case 'progress':
         return (
-          <ProgressTracking 
-            user={currentUser} 
+          <ProgressTracking
+            user={currentUser}
             courses={courses}
             assessments={assessments}
             simulationResults={simulationResults}
@@ -207,9 +136,9 @@ function App() {
         return currentUser.role === 'admin' ? (
           <UserManagement onNavigate={setCurrentPage} />
         ) : (
-          <Dashboard 
-            user={currentUser} 
-            courses={courses} 
+          <Dashboard
+            user={currentUser}
+            courses={courses}
             assessments={assessments}
             simulationResults={simulationResults}
             onNavigate={setCurrentPage}
@@ -217,9 +146,9 @@ function App() {
         );
       default:
         return (
-          <Dashboard 
-            user={currentUser} 
-            courses={courses} 
+          <Dashboard
+            user={currentUser}
+            courses={courses}
             assessments={assessments}
             simulationResults={simulationResults}
             onNavigate={setCurrentPage}
@@ -230,15 +159,15 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navigation 
-        user={currentUser} 
-        currentPage={currentPage}
-        onNavigate={setCurrentPage}
-        onLogout={handleLogout}
-      />
-      <main className="pt-16">
-        {renderCurrentPage()}
-      </main>
+      {currentUser && (
+        <Navigation
+          user={currentUser}
+          currentPage={currentPage}
+          onNavigate={setCurrentPage}
+          onLogout={handleLogout}
+        />
+      )}
+      <main className="pt-16">{renderCurrentPage()}</main>
       <NotificationSystem notifications={notifications} />
     </div>
   );
